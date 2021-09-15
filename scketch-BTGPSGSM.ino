@@ -11,94 +11,114 @@
 // Criar um software serial bluetooth e GPS
 SoftwareSerial bluetoothSerial(BT_TX, BT_RX);
 // SoftwareSerial gpsSerial(GPS_TX, GPS_RX);
-// TinyGPS gps;
+TinyGPS gps;
 
 bool state = false;
+bool isBTFree = true;
 char incomingByte; // Variável para armezenar o bytes recebidos
 char delimiter = ';';
-String CMD = "";
+
+bool trackLocation = false;
+float latitude = -25.418267;
+float longitude = -49.264517;
 
 void setup(){
     // Inicializar o serial bluetooth e GPS
     // gpsSerial.begin(9600);
     bluetoothSerial.begin(9600);
-    Serial.begin(9600);
+    Serial.begin(38400);
     // Inicializar o pino do LED
     pinMode(LED_PIN, OUTPUT);
 }
 
 void loop(){
-    bool gpsReceived = false;
-
-    // Verifica se está chegando dados pelo serial
-    if(bluetoothSerial.available() > 0){
-        // Armazena o byte na variárel
-        incomingByte = bluetoothSerial.read();
-
-        if(incomingByte != delimiter){
-            // Concatena o caractere na string CMD
-            CMD += incomingByte;
-        } else {
-            // Avalia o comando
-            readCMD(CMD);
-
-            // Zera a string do comando
-            CMD = "";
-        }
-    }
+    readBT();
 
     if(state){
         digitalWrite(LED_PIN, HIGH);
-        
+        sendLocation();
+
     } else {
         digitalWrite(LED_PIN, LOW);
     }
-
-    // while(gpsSerial.available()){
-    //     char cIn = gpsSerial.read();
-    //     gpsReceived = gps.encode(cIn);
-    // }
-    // if(gpsReceived){
-    //     Serial.println("----------------------------------------------------------");
-
-    //     long latitude, longitude;
-    //     unsigned long delayInfo;
-
-    //     gps.get_position(&latitude, &longitude, &delayInfo);
-    //     Serial.print(float(latitude) / 100000, 6);
-
-    //     if(latitude != TinyGPS::GPS_INVALID_F_ANGLE){
-    //         Serial.print("Latitude: ");
-    //         Serial.println(float(latitude) / 100000, 6);
-    //     }
-    //     if(longitude != TinyGPS::GPS_INVALID_F_ANGLE){
-    //         Serial.print("Longitude: ");
-    //         Serial.println(float(longitude) / 100000, 6);
-    //     }
-    //     if(delayInfo != TinyGPS::GPS_INVALID_AGE){
-    //         Serial.print("Delay da informação: ");
-    //         Serial.println(delayInfo);
-    //     }
-        
-    // }
-
-    
 }
 
 void readCMD(String input){
-    Serial.println(input);
+    bluetoothSerial.read();
+    
     if(input == "device=on"){
         state = true;
-        
-        bluetoothSerial.write("{\"result\":true,\"type\":\"success\",\"cmd\":\"device=on\",\"message\":\"O Arduino foi ligado!\"};");
-
+        writeBT("{\"result\":true,\"type\":\"success\",\"cmd\":\"device=on\",\"message\":\"O Arduino foi ligado!\"};");
     } else if(input == "device=off"){
         state = false;
-        
-        bluetoothSerial.write("{\"result\":false,\"type\":\"success\",\"cmd\":\"device=off\",\"message\":\"O Arduino foi desligado!\"};");
-    } else {
+        writeBT("{\"result\":false,\"type\":\"success\",\"cmd\":\"device=off\",\"message\":\"O Arduino foi desligado!\"};");
+    } else if(input == "device=stopTrackLocation"){
+        trackLocation = false;
+        writeBT("{\"result\":false,\"type\":\"success\",\"cmd\":\"device=stopTrackLocation\",\"message\":\"O dispositivo está com o rastreamento desligado!\"};");
+    } else if(input == "device=trackLocation"){
+        trackLocation = true;
+        writeBT("{\"result\":true,\"type\":\"success\",\"cmd\":\"device=trackLocation\",\"message\":\"O dispositivo está sendo rastreado!\"};");
+    }  else {
         Serial.println(input);
+        writeBT("{\"result\":false,\"type\":\"error\",\"cmd\":\""+input+"\",\"code\":\"unknow\",\"message\":\"Comando desconhecido!\"};");
+    }
+}
 
-        bluetoothSerial.write("{\"result\":false,\"type\":\"error\",\"code\":\"unknow\",\"message\":\"Comando desconhecido!\"};");
+void sendLocation(){
+    if(trackLocation){
+        // Serial.println("Tracker ligado");
+        String stringLat = "";
+
+        latitude += 0.00100;
+        longitude += 0.00100;
+        stringLat = "{\"result\":{";
+        stringLat += "\"latitude\":\"";
+        stringLat += String(latitude, 6);
+        stringLat += "\",\"longitude\":\"";
+        stringLat += String(longitude, 6);
+        stringLat += "\"";
+        stringLat += "},\"type\":\"success\",\"cmd\":\"device=trackLocation\",\"message\":\"Novas coordenadas recebidas!\"};";
+        Serial.println(stringLat);
+        delay(600);
+        writeBT(stringLat);
+    } 
+}
+
+void readBT(){
+    while(!isBTFree){}
+    isBTFree = false;
+    String CMD = "";
+    
+    while(!isBTFree){
+        // Verifica se está chegando dados pelo serial
+        bluetoothSerial.listen();
+        if(bluetoothSerial.available() > 0){
+            if(int(incomingByte) > -1) {
+                // Armazena o byte na variárel
+                incomingByte = bluetoothSerial.read();
+                if(incomingByte != delimiter){
+                    // Concatena o caractere na string CMD
+                    CMD += incomingByte;
+                } else {
+                    Serial.println("\nComando recebido: "+CMD);
+
+                    isBTFree = true;
+                    readCMD(CMD);
+                }
+            } 
+        } else if(CMD.length() < 1){
+            isBTFree = true;
+        }
+    }
+}
+void writeBT(String data){
+    while(!isBTFree){}
+    isBTFree = false;
+    while(!isBTFree){
+        for(int i = 0; i < data.length(); i++){
+            bluetoothSerial.write(data[i]);
+        }
+        Serial.println("Resposta enviada: "+data);
+        isBTFree = true;
     }
 }
